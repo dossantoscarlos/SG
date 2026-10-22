@@ -1,0 +1,143 @@
+[theme]
+font = "'Inter':https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFont = "'Inter':https://fonts.googleapis.com/css2?family=Inter:wght@600;700&display=swap"
+codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+baseFontSize = 14
+baseFontWeight = 400
+codeFontSize = "13px"
+headingFontSizes = ["30px", "24px", "20px", "16px", "14px", "12px"]
+headingFontWeights = [700, 600, 600, 600, 500, 500]
+metricValueFontSize = "2rem"
+metricValueFontWeight = 700
+baseRadius = "10px"
+buttonRadius = "10px"
+showWidgetBorder = true
+showSidebarBorder = false
+linkUnderline = false
+paddingTop = "1rem"
+paddingBottom = "2.5rem"
+
+[theme.light]
+primaryColor = "#0F766E"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F8FAFC"
+textColor = "#0F172A"
+linkColor = "#0F766E"
+borderColor = "#E2E8F0"
+codeBackgroundColor = "#F1F5F9"
+codeTextColor = "#0F172A"
+grayColor = "#64748B"
+blueColor = "#2563EB"
+greenColor = "#059669"
+redColor = "#DC2626"
+yellowColor = "#CA8A04"
+orangeColor = "#EA580C"
+violetColor = "#7C3AED"
+chartCategoricalColors = [
+    "#0F766E",
+    "#2563EB",
+    "#7C3AED",
+    "#EA580C",
+    "#DB2777",
+    "#CA8A04",
+    "#64748B",
+    "#0891B2",
+]
+chartSequentialColors = [
+    "#F0FDFA",
+    "#CCFBF1",
+    "#99F6E4",
+    "#5EEAD4",
+    "#2DD4BF",
+    "#14B8A6",
+    "#0D9488",
+    "#0F766E",
+    "#115E59",
+    "#134E4A",
+]
+dataframeBorderColor = "#E2E8F0"
+dataframeHeaderBackgroundColor = "#F8FAFC"
+dataframeHeaderTextColor = "#334155"
+
+[theme.dark]
+primaryColor = "#0F766E"
+backgroundColor = "#0B1120"
+secondaryBackgroundColor = "#111C2E"
+textColor = "#E2E8F0"
+linkColor = "#5EEAD4"
+borderColor = "#243244"
+codeBackgroundColor = "#111C2E"
+codeTextColor = "#E2E8F0"
+grayColor = "#94A3B8"
+blueColor = "#60A5FA"
+greenColor = "#34D399"
+redColor = "#F87171"
+yellowColor = "#FBBF24"
+orangeColor = "#FB923C"
+violetColor = "#A78BFA"
+chartCategoricalColors = [
+    "#2DD4BF",
+    "#60A5FA",
+    "#A78BFA",
+    "#FB923C",
+    "#F472B6",
+    "#FBBF24",
+    "#94A3B8",
+    "#22D3EE",
+]
+chartSequentialColors = [
+    "#042F2E",
+    "#064E4B",
+    "#0F766E",
+    "#0D9488",
+    "#14B8A6",
+    "#2DD4BF",
+    "#5EEAD4",
+    "#99F6E4",
+    "#CCFBF1",
+    "#F0FDFA",
+]
+dataframeBorderColor = "#243244"
+dataframeHeaderBackgroundColor = "#111C2E"
+dataframeHeaderTextColor = "#E2E8F0"
+
+[theme.sidebar]
+paddingTop = "1rem"
+paddingBottom = "1.5rem"
+
+[theme.light.sidebar]
+backgroundColor = "#0B1220"
+secondaryBackgroundColor = "#111C2E"
+codeBackgroundColor = "#111C2E"
+textColor = "#E2E8F0"
+borderColor = "#1E293B"
+primaryColor = "#0F766E"
+linkColor = "#5EEAD4"
+dataframeHeaderBackgroundColor = "#111C2E"
+dataframeHeaderTextColor = "#E2E8F0"
+dataframeBorderColor = "#1E293B"
+
+[theme.dark.sidebar]
+backgroundColor = "#070C16"
+secondaryBackgroundColor = "#0F172A"
+codeBackgroundColor = "#0F172A"
+textColor = "#E2E8F0"
+borderColor = "#1E293B"
+primaryColor = "#0F766E"
+linkColor = "#5EEAD4"
+dataframeHeaderBackgroundColor = "#0F172A"
+dataframeHeaderTextColor = "#E2E8F0"
+dataframeBorderColor = "#1E293B"
+
+[client]
+# "viewer" mantém o menu de aparência (claro/escuro) disponível, sem expor
+# as opções de desenvolvedor no topo do painel.
+toolbarMode = "viewer"
+showErrorDetails = "full"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
+maxUploadSize = 5
