@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import streamlit as st
@@ -23,8 +22,8 @@ current = branding.load_branding()
 
 ui.page_header(
     "Tema e identidade",
-    "Personalize o nome da empresa, o ícone e as cores primária, secundária e "
-    "terciária usadas no painel.",
+    "Personalize o nome da empresa, o ícone e as cores primária e secundária "
+    "usadas no painel.",
     icon=":material/palette:",
 )
 
@@ -35,13 +34,13 @@ st.markdown(
       :root {{
         --brand-primary: {current['primary_color']};
         --brand-secondary: {current['secondary_color']};
-        --brand-tertiary: {current['tertiary_color']};
       }}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
+# --- Identidade da empresa -------------------------------------------------
 with st.container(border=True):
     st.subheader("Identidade da empresa")
     st.caption("Nome exibido no painel, na tela de login e na barra lateral.")
@@ -51,6 +50,8 @@ with st.container(border=True):
             "Nome da empresa",
             value=current["company_name"],
             placeholder="SG Gestão",
+            autocomplete="organization",
+            help="Aparece no título da aba, na tela de login e no rodapé da barra lateral.",
         )
         icon_file = st.file_uploader(
             "Ícone / logo (PNG ou SVG)",
@@ -77,12 +78,15 @@ with st.container(border=True):
 
     st.caption(f"Ícone atual: `{current['icon_path']}`")
 
+st.space("medium")
+
+# --- Cores do tema ---------------------------------------------------------
 with st.container(border=True):
     st.subheader("Cores do tema")
     st.caption(
-        "Primária, secundária e terciária. A primária e a secundária também "
-        "atualizam o `.streamlit/config.toml`; para o tema nativo do "
-        "Streamlit aplicar por completo, reinicie o servidor após salvar."
+        "Primária e secundária. A primária atualiza a cor de destaque do painel; "
+        "a secundária, o fundo secundário. Para o tema nativo do Streamlit "
+        "aplicar por completo, reinicie o servidor após salvar."
     )
 
     with st.form("branding_colors_form"):
@@ -92,24 +96,28 @@ with st.container(border=True):
         secondary = st.color_picker(
             "Cor secundária", value=current["secondary_color"]
         )
-        tertiary = st.color_picker(
-            "Cor terciária", value=current["tertiary_color"]
-        )
 
         st.markdown("**Pré-visualização**")
-        preview_cols = st.columns(3)
+        preview_cols = st.columns(2, gap="large")
         for col, label, color in zip(
             preview_cols,
-            ("Primária", "Secundária", "Terciária"),
-            (primary, secondary, tertiary),
+            ("Primária", "Secundária"),
+            (primary, secondary),
         ):
             with col:
+                text_color = branding.contrast_color(color)
                 st.markdown(
                     f"""
-                    <div style="background:{color};height:48px;border-radius:8px;
+                    <div style="background:{color};height:56px;border-radius:10px;
                                 display:flex;align-items:center;justify-content:center;
-                                color:#fff;font-weight:600;border:1px solid rgba(0,0,0,0.1);">
+                                color:{text_color};font-weight:600;
+                                border:1px solid rgba(0,0,0,0.12);
+                                box-shadow:0 1px 2px rgba(0,0,0,0.08);">
                         {label}
+                    </div>
+                    <div style="text-align:center;margin-top:0.35rem;font-size:0.85rem;
+                                color:var(--text-color,#64748B);">
+                        {color}
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -127,11 +135,10 @@ with st.container(border=True):
             {
                 "primary_color": primary,
                 "secondary_color": secondary,
-                "tertiary_color": tertiary,
             }
         )
         try:
-            branding.update_config_theme(primary, secondary, tertiary)
+            branding.update_config_theme(primary, secondary)
         except Exception as exc:  # pragma: no cover - defensivo
             st.warning(f"Não foi possível atualizar o config.toml: {exc}")
         ui.set_flash(
@@ -140,13 +147,17 @@ with st.container(border=True):
         )
         st.rerun()
 
+st.space("small")
+
 with st.container(border=True):
     st.subheader("Resumo da identidade")
-    st.markdown(f"- **Empresa:** {current['company_name']}")
-    st.markdown(f"- **Ícone:** `{current['icon_path']}`")
-    st.markdown(f"- **Primária:** `{current['primary_color']}`")
-    st.markdown(f"- **Secundária:** `{current['secondary_color']}`")
-    st.markdown(f"- **Terciária:** `{current['tertiary_color']}`")
+    summary_cols = st.columns(2, gap="large")
+    with summary_cols[0]:
+        st.markdown(f"- **Empresa:** {current['company_name']}")
+        st.markdown(f"- **Ícone:** `{current['icon_path']}`")
+    with summary_cols[1]:
+        st.markdown(f"- **Primária:** `{current['primary_color']}`")
+        st.markdown(f"- **Secundária:** `{current['secondary_color']}`")
 
 st.space("small")
 st.caption(

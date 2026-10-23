@@ -100,6 +100,15 @@ if not user:
     st.navigation([login_page], position="hidden").run()
     st.stop()
 
+# Valida a empresa selecionada na sessão.
+from lib import companies as _companies
+_company = st.session_state.get("auth_company")
+if _company is not None:
+    if not _companies.user_has_company(
+        int(user["id"]), int(_company["id"]), is_superuser=bool(user.get("is_superuser"))
+    ):
+        st.session_state.pop("auth_company", None)
+
 st.logo(
     _BRANDING["icon_path"],
     icon_image=_BRANDING["icon_path"],
@@ -152,6 +161,9 @@ if acl.has_perm(user, "logistics.view_shipment"):
     section_specs[":material/local_shipping: **Operação**"].append(
         ("app_pages/logistics.py", "Logística", ":material/local_shipping:")
     )
+    section_specs[":material/local_shipping: **Operação**"].append(
+        ("app_pages/branches.py", "Filiais", ":material/storefront:")
+    )
 if acl.has_perm(user, "products.view_product"):
     section_specs[":material/inventory_2: **Cadastros**"].append(
         ("app_pages/products.py", "Produtos", ":material/inventory_2:")
@@ -159,6 +171,14 @@ if acl.has_perm(user, "products.view_product"):
 if acl.has_perm(user, "customers.view_customer"):
     section_specs[":material/inventory_2: **Cadastros**"].append(
         ("app_pages/customers.py", "Clientes", ":material/group:")
+    )
+if acl.has_perm(user, "products.view_product"):
+    section_specs[":material/inventory_2: **Cadastros**"].append(
+        ("app_pages/companies.py", "Empresas", ":material/apartment:")
+    )
+if acl.has_perm(user, "logistics.view_shipment"):
+    section_specs[":material/inventory_2: **Cadastros**"].append(
+        ("app_pages/suppliers.py", "Fornecedores", ":material/local_shipping:")
     )
 if acl.has_perm(user, "reports.view_report"):
     section_specs[":material/analytics: **Análise**"].append(
@@ -220,7 +240,7 @@ with st.sidebar:
     ):
         _logout()
     st.space("small")
-    st.caption("SG Gestão · v1.5")
+    st.caption(f"{_BRANDING['company_name']} · v1.5")
 
 ui.show_flash()
 page.run()

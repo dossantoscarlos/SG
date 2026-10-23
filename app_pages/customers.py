@@ -8,17 +8,14 @@ import pandas as pd
 import streamlit as st
 
 from lib import acl, catalog, orders, ui
+from lib.database import BRAZIL_STATES
 from lib.errors import DomainError
 
 user = acl.require("customers.view_customer")
 can_view_orders = acl.has_perm(user, "orders.view_order")
 can_change = acl.has_perm(user, "customers.change_customer")
 
-BRAZIL_STATES = (
-    "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
-    "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
-    "SP", "SE", "TO",
-)
+# (importado de lib.database)
 
 QUICK_EDIT_COLUMNS = {
     "cliente": "name",

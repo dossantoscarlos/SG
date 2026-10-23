@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from lib import acl, catalog, inventory, logistics, orders, stock_items, ui
+from lib.database import BRAZIL_STATES
 from lib.errors import DomainError
 
 user = acl.require("logistics.view_shipment")
@@ -436,12 +437,16 @@ def stock_entity_dialog(entity_id: int | None = None) -> None:
                 placeholder="Ex.: São Paulo",
             )
         with state_col:
-            state = st.text_input(
+            state_options = ("—", *BRAZIL_STATES)
+            current_state = entity["state"] if entity and entity["state"] else "—"
+            state = st.selectbox(
                 "UF",
-                value=entity["state"] if entity and entity["state"] else "",
-                max_chars=2,
-                placeholder="SP",
+                options=state_options,
+                index=state_options.index(current_state)
+                if current_state in state_options
+                else 0,
             )
+            state = "" if state == "—" else state
         active = st.toggle(
             "Entidade ativa",
             value=bool(entity["active"]) if entity else True,

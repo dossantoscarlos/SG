@@ -9,6 +9,7 @@ from datetime import datetime
 import pandas as pd
 
 from lib.database import connection, transaction
+from lib import crypto
 from lib.errors import DomainError
 from lib.invoices import InvoiceData, parse_nfe_xml
 
@@ -1502,7 +1503,7 @@ def list_stock_entities(*, active_only: bool = False) -> pd.DataFrame:
     """Lista filiais e fornecedores usados como origem ou destino."""
     clause = "WHERE se.active = 1" if active_only else ""
     sql = f"""
-        SELECT se.id, se.kind, se.name, se.document, se.city, se.state,
+        SELECT se.id, se.kind, se.name, se.document, se.document_hash, se.city, se.state,
                se.active, se.created_at, se.updated_at,
                COUNT(sm.id) AS movements_count
         FROM stock_entities se
@@ -1513,7 +1514,10 @@ def list_stock_entities(*, active_only: bool = False) -> pd.DataFrame:
         ORDER BY se.active DESC, se.kind, se.name COLLATE NOCASE
     """
     with connection() as conn:
-        return pd.read_sql_query(sql, conn)
+        df = pd.read_sql_query(sql, conn)
+    if not df.empty and "document" in df.columns:
+        df["document"] = df["document"].map(crypto.decrypt)
+    return df
 
 
 def get_stock_entity(entity_id: int) -> dict | None:
@@ -1521,7 +1525,11 @@ def get_stock_entity(entity_id: int) -> dict | None:
         row = conn.execute(
             "SELECT * FROM stock_entities WHERE id = ?", (entity_id,)
         ).fetchone()
-    return dict(row) if row else None
+    if row is None:
+        return None
+    data = dict(row)
+    data["document"] = crypto.decrypt(data.get("document"))
+    return data
 
 
 def save_stock_entity(
@@ -1551,11 +1559,11 @@ def save_stock_entity(
                 cursor = conn.execute(
                     """
                     INSERT INTO stock_entities
-                        (kind, name, document, city, state, active,
+                        (kind, name, document, document_hash, city, state, active,
                          created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (kind, name, document, city, state, int(active), now, now),
+                    (kind, name, crypto.encrypt(document), crypto.hash_document(document), city, state, int(active), now, now),
                 )
                 return int(cursor.lastrowid)
 
@@ -1567,11 +1575,11 @@ def save_stock_entity(
             conn.execute(
                 """
                 UPDATE stock_entities
-                SET kind = ?, name = ?, document = ?, city = ?, state = ?,
+                SET kind = ?, name = ?, document = ?, document_hash = ?, city = ?, state = ?,
                     active = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (kind, name, document, city, state, int(active), now, entity_id),
+                (kind, name, crypto.encrypt(document), crypto.hash_document(document), city, state, int(active), now, entity_id),
             )
             return entity_id
     except sqlite3.IntegrityError as exc:

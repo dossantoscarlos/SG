@@ -24,6 +24,12 @@ CHANNELS = ("Site", "WhatsApp", "Loja física", "Marketplace")
 CUSTOMER_STATUSES = ("Ativo", "Inativo")
 CATEGORIES = ("Acessórios", "Casa", "Eletrônicos", "Papelaria", "Vestuário")
 
+BRAZIL_STATES = (
+    "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
+    "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
+    "SP", "SE", "TO",
+)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -314,6 +320,40 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_invoices_access_key
     ON stock_invoices(access_key)
     WHERE access_key IS NOT NULL AND access_key <> '';
 CREATE INDEX IF NOT EXISTS idx_stock_invoices_number ON stock_invoices(number);
+
+CREATE TABLE IF NOT EXISTS companies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('matriz', 'filial')),
+    parent_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+    address TEXT,
+    city TEXT,
+    state TEXT,
+    zip_code TEXT,
+    document TEXT,
+    phone TEXT,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    allow_branch_stock_view INTEGER NOT NULL DEFAULT 0
+        CHECK (allow_branch_stock_view IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS company_config (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_companies (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, company_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_companies_user ON user_companies(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_companies_company ON user_companies(company_id);
 """
 
 
@@ -368,6 +408,47 @@ def _ensure_user_columns(conn: sqlite3.Connection) -> None:
                 CHECK (is_superuser IN (0, 1))
             """
         )
+
+
+def _ensure_user_companies(conn) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS user_companies ("
+        "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+        "company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE, "
+        "is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)), "
+        "created_at TEXT NOT NULL, "
+        "PRIMARY KEY (user_id, company_id))"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_user_companies_user ON user_companies(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_user_companies_company ON user_companies(company_id)")
+
+
+def _ensure_crypto_columns(conn: sqlite3.Connection) -> None:
+    """Adiciona colunas de hash para busca de e-mails e documentos criptografados."""
+    specs = (
+        ("users", "email_hash", "TEXT"),
+        ("customers", "email_hash", "TEXT"),
+        ("stock_entities", "document_hash", "TEXT"),
+        ("companies", "document_hash", "TEXT"),
+    )
+    for table, column, definition in specs:
+        columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email_hash ON users(email_hash)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_customers_email_hash ON customers(email_hash)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_entities_document_hash ON stock_entities(document_hash)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_companies_document_hash ON companies(document_hash)")
+
+
+def _ensure_company_columns(conn: sqlite3.Connection) -> None:
+    """Adiciona company_id a products e cria tabelas de empresa se faltarem."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(products)")}
+    if "company_id" not in columns:
+        conn.execute("ALTER TABLE products ADD COLUMN company_id INTEGER REFERENCES companies(id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_products_company ON products(company_id)"
+    )
 
 
 def _ensure_stock_movement_columns(conn: sqlite3.Connection) -> None:
@@ -438,6 +519,9 @@ def init_database(seed_demo: bool = True) -> None:
     with connection() as conn:
         conn.executescript(SCHEMA)
         _ensure_user_columns(conn)
+        _ensure_company_columns(conn)
+        _ensure_crypto_columns(conn)
+        _ensure_user_companies(conn)
         _ensure_stock_movement_columns(conn)
         conn.execute("PRAGMA journal_mode = WAL")
         conn.commit()
@@ -475,7 +559,56 @@ def _sync_logistics_data() -> None:
             _backfill_stock_movement_status(conn)
         if version < 5:
             _backfill_stock_documents(conn)
-        conn.execute("PRAGMA user_version = 5")
+        if version < 6:
+            _backfill_companies(conn, now)
+        if version < 7:
+            _backfill_crypto(conn, now)
+        if version < 8:
+            _backfill_user_companies(conn, now)
+        conn.execute("PRAGMA user_version = 8")
+
+
+def _backfill_companies(conn: sqlite3.Connection, now: str) -> None:
+    '''Cria a empresa matriz padrão e associa produtos existentes a ela.'''
+    row = conn.execute("SELECT id FROM companies WHERE type = 'matriz' LIMIT 1").fetchone()
+    if row is None:
+        cur = conn.execute(
+            """
+            INSERT INTO companies
+                (name, type, parent_id, address, city, state, zip_code,
+                 document, phone, active, allow_branch_stock_view, created_at, updated_at)
+            VALUES (?, 'matriz', NULL, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)
+            """,
+            ("SG Gestão", "Endereço principal", "São Paulo", "SP", "00000-000",
+             None, None, now, now),
+        )
+        company_id = cur.lastrowid
+    else:
+        company_id = row["id"]
+
+    # Associa produtos sem empresa à matriz padrão.
+    conn.execute(
+        "UPDATE products SET company_id = ? WHERE company_id IS NULL",
+        (company_id,),
+    )
+
+    # Configuração inicial da empresa.
+    config = {
+        "company_name": "SG Gestão",
+        "company_address": "Endereço principal",
+        "company_city": "São Paulo",
+        "company_state": "SP",
+        "company_zip": "00000-000",
+    }
+    for key, value in config.items():
+        exists = conn.execute(
+            "SELECT 1 FROM company_config WHERE key = ?", (key,)
+        ).fetchone()
+        if not exists:
+            conn.execute(
+                "INSERT INTO company_config (key, value, updated_at) VALUES (?, ?, ?)",
+                (key, value, now),
+            )
 
 
 def _seed_carriers(conn: sqlite3.Connection, now: str) -> None:
@@ -1114,3 +1247,67 @@ def reset_demo_database() -> None:
         if candidate.exists():
             candidate.unlink()
     init_database(seed_demo=True)
+
+
+def _backfill_crypto(conn, now: str) -> None:
+    """Criptografa e-mails/documentos existentes e preenche as colunas de hash."""
+    from lib import crypto
+
+    for row in conn.execute("SELECT id, email FROM users").fetchall():
+        val = row["email"]
+        if not val:
+            continue
+        plain = crypto.decrypt(val) if str(val).startswith("gAAAAA") else val
+        conn.execute(
+            "UPDATE users SET email = ?, email_hash = ? WHERE id = ?",
+            (crypto.encrypt(plain), crypto.hash_email(plain), row["id"]),
+        )
+
+    for row in conn.execute("SELECT id, email FROM customers").fetchall():
+        val = row["email"]
+        if not val:
+            continue
+        plain = crypto.decrypt(val) if str(val).startswith("gAAAAA") else val
+        conn.execute(
+            "UPDATE customers SET email = ?, email_hash = ? WHERE id = ?",
+            (crypto.encrypt(plain), crypto.hash_email(plain), row["id"]),
+        )
+
+    for row in conn.execute("SELECT id, document FROM stock_entities").fetchall():
+        val = row["document"]
+        if not val:
+            continue
+        plain = crypto.decrypt(val) if str(val).startswith("gAAAAA") else val
+        conn.execute(
+            "UPDATE stock_entities SET document = ?, document_hash = ? WHERE id = ?",
+            (crypto.encrypt(plain), crypto.hash_document(plain), row["id"]),
+        )
+
+    for row in conn.execute("SELECT id, document FROM companies").fetchall():
+        val = row["document"]
+        if not val:
+            continue
+        plain = crypto.decrypt(val) if str(val).startswith("gAAAAA") else val
+        conn.execute(
+            "UPDATE companies SET document = ?, document_hash = ? WHERE id = ?",
+            (crypto.encrypt(plain), crypto.hash_document(plain), row["id"]),
+        )
+
+
+def _backfill_user_companies(conn, now: str) -> None:
+    company_row = conn.execute(
+        "SELECT id FROM companies WHERE type = 'matriz' ORDER BY id LIMIT 1"
+    ).fetchone()
+    if company_row is None:
+        return
+    company_id = company_row["id"]
+    for row in conn.execute("SELECT id FROM users").fetchall():
+        exists = conn.execute(
+            "SELECT 1 FROM user_companies WHERE user_id = ? AND company_id = ?",
+            (row["id"], company_id),
+        ).fetchone()
+        if not exists:
+            conn.execute(
+                "INSERT INTO user_companies (user_id, company_id, is_default, created_at) VALUES (?, ?, 1, ?)",
+                (row["id"], company_id, now),
+            )

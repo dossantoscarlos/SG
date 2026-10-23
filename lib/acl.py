@@ -23,6 +23,7 @@ import streamlit as st
 from lib.database import connection, transaction
 from lib.errors import DomainError
 from lib.security import hash_password, validate_password_strength
+from lib import crypto
 
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 SYSTEM_PROFILE_NAME = "Administradores"
@@ -446,7 +447,7 @@ def get_access(user_id: int) -> dict | None:
     return {
         "id": int(row["id"]),
         "name": row["name"],
-        "email": row["email"],
+        "email": crypto.decrypt(row["email"]),
         "active": bool(row["active"]),
         "is_superuser": bool(row["is_superuser"]),
         "must_change_password": bool(row["must_change_password"]),
@@ -480,7 +481,7 @@ def list_users() -> list[dict]:
         {
             "id": int(row["id"]),
             "name": row["name"],
-            "email": row["email"],
+            "email": crypto.decrypt(row["email"]),
             "active": bool(row["active"]),
             "is_superuser": bool(row["is_superuser"]),
             "must_change_password": bool(row["must_change_password"]),
@@ -525,7 +526,7 @@ def get_user(user_id: int) -> dict | None:
     return {
         "id": int(row["id"]),
         "name": row["name"],
-        "email": row["email"],
+        "email": crypto.decrypt(row["email"]),
         "active": bool(row["active"]),
         "is_superuser": bool(row["is_superuser"]),
         "must_change_password": bool(row["must_change_password"]),

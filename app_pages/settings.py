@@ -7,7 +7,7 @@ from datetime import datetime
 
 import streamlit as st
 
-from lib import acl, auth, ui
+from lib import acl, auth, companies, ui
 from lib.database import get_database_path
 from lib.errors import DomainError
 
@@ -138,6 +138,43 @@ if must_change:
         "alterar a senha.",
         icon=":material/info:",
     )
+
+st.space("small")
+
+# --- Empresa atual ---------------------------------------------------------
+company = st.session_state.get("auth_company")
+if company:
+    with st.container(border=True):
+        st.subheader("Empresa atual")
+        st.caption("Empresa selecionada no login.")
+        st.markdown(f"**{company.get('name')}**")
+        st.caption(
+            f"Tipo: {'Matriz' if company.get('type') == 'matriz' else 'Filial'}"
+            + (f" · {company.get('city') or ''}" if company.get("city") else "")
+        )
+        if company.get("type") == "filial" and (
+            user.get("is_superuser")
+            or acl.has_any(user, "products.change_product", "logistics.adjust_stock")
+        ):
+            current_enabled = bool(company.get("allow_branch_stock_view"))
+            new_state = st.toggle(
+                "Permitir que a matriz consulte o estoque desta filial",
+                value=current_enabled,
+                key="branch_stock_view_toggle",
+            )
+            if new_state != current_enabled:
+                try:
+                    companies.set_branch_stock_view(
+                        int(company["id"]), new_state, user["name"]
+                    )
+                except Exception as exc:
+                    st.error(str(exc))
+                else:
+                    refreshed = companies.get_company(int(company["id"]))
+                    if refreshed:
+                        st.session_state["auth_company"] = refreshed
+                    ui.set_flash("Configuração atualizada.")
+                    st.rerun()
 
 st.space("small")
 account_col, system_col = st.columns(2, gap="large")

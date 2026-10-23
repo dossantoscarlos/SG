@@ -8,6 +8,7 @@ from datetime import datetime
 
 from lib.database import transaction
 from lib.errors import DomainError
+from lib import crypto
 from lib.security import hash_password, validate_password_strength, verify_password
 
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
@@ -17,7 +18,7 @@ def _user_to_dict(row: sqlite3.Row) -> dict:
     return {
         "id": row["id"],
         "name": row["name"],
-        "email": row["email"],
+        "email": crypto.decrypt(row["email"]),
         "active": bool(row["active"]),
         "is_superuser": bool(row["is_superuser"]),
         "must_change_password": bool(row["must_change_password"]),
@@ -32,14 +33,15 @@ def authenticate(email: str, password: str) -> dict | None:
         return None
 
     with transaction() as conn:
+        email_hash = crypto.hash_email(normalized)
         row = conn.execute(
             """
             SELECT id, name, email, password_hash, active, is_superuser,
                    must_change_password, last_login
             FROM users
-            WHERE email = ? COLLATE NOCASE
+            WHERE email_hash = ?
             """,
-            (normalized,),
+            (email_hash,),
         ).fetchone()
         if row is None or not row["active"]:
             return None
@@ -79,8 +81,8 @@ def update_profile(user_id: int, name: str, email: str) -> dict:
     try:
         with transaction() as conn:
             conn.execute(
-                "UPDATE users SET name = ?, email = ? WHERE id = ?",
-                (name, email, user_id),
+                "UPDATE users SET name = ?, email = ?, email_hash = ? WHERE id = ?",
+                (name, crypto.encrypt(email), crypto.hash_email(email), user_id),
             )
             row = conn.execute(
                 """

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from lib import acl, ui
+from lib import acl, companies, ui
 from lib.errors import DomainError
 
 actor = acl.require_any("auth.view_user", "auth.view_group")
@@ -787,11 +787,77 @@ st.caption(
     "e superusuários têm acesso total."
 )
 
+def _companies_tab() -> None:
+    st.caption(
+        "Vincule empresas (matriz ou filial) aos usuários. Apenas empresas "
+        "vinculadas aparecem no login."
+    )
+    users = acl.list_users()
+    companies_list = companies.list_companies(active=True)
+    if not users or not companies_list:
+        ui.empty_state(
+            "Sem dados",
+            "Cadastre usuários e empresas antes de vincular.",
+        )
+        return
+
+    user_options = {f"{u['name']} ({u['email']})": u["id"] for u in users}
+    selected_user_label = st.selectbox(
+        "Usuário",
+        options=list(user_options),
+        key="access_company_user",
+    )
+    selected_user_id = user_options[selected_user_label]
+
+    linked = companies.list_user_companies(selected_user_id)
+    linked_ids = {c["company_id"] for c in linked}
+
+    st.space("small")
+    st.markdown("**Empresas vinculadas**")
+    if linked:
+        for item in linked:
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.markdown(
+                    f"{'★ ' if item['is_default'] else ''}{item['company_name']} "
+                    f"({'Matriz' if item['company_type'] == 'matriz' else 'Filial'})"
+                )
+            with col2:
+                if st.button(
+                    "Remover",
+                    icon=":material/remove:",
+                    key=f"remove_company_{selected_user_id}_{item['company_id']}",
+                ):
+                    companies.remove_company(selected_user_id, item["company_id"])
+                    ui.set_flash("Vínculo removido.")
+                    st.rerun()
+    else:
+        st.caption("Nenhuma empresa vinculada.")
+
+    st.space("small")
+    st.markdown("**Vincular nova empresa**")
+    available = [c for c in companies_list if c["id"] not in linked_ids]
+    if not available:
+        st.caption("Todas as empresas já estão vinculadas a este usuário.")
+        return
+    avail_options = {c["name"]: c["id"] for c in available}
+    new_label = st.selectbox("Empresa", options=list(avail_options), key="access_new_company")
+    is_default = st.checkbox("Definir como padrão", key="access_company_default")
+    if st.button("Vincular", type="primary", icon=":material/add:", key="access_assign_company"):
+        companies.assign_company(
+            selected_user_id, avail_options[new_label], is_default=is_default
+        )
+        ui.set_flash("Empresa vinculada ao usuário.")
+        st.rerun()
+
+
 tab_labels: list[str] = []
 if can_view_users:
     tab_labels.append("Usuários")
 if can_view_profiles:
     tab_labels.append("Perfis")
+if can_view_users:
+    tab_labels.append("Empresas")
 tabs = st.tabs(tab_labels)
 
 tab_index = 0
@@ -802,3 +868,7 @@ if can_view_users:
 if can_view_profiles:
     with tabs[tab_index]:
         _profiles_tab()
+    tab_index += 1
+if can_view_users:
+    with tabs[tab_index]:
+        _companies_tab()

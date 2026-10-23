@@ -17,6 +17,7 @@ from lib.database import (
 )
 from lib.errors import DomainError
 from lib.inventory import record_stock_movement
+from lib import crypto
 
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
@@ -25,9 +26,18 @@ _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 # Produtos
 # ---------------------------------------------------------------------------
 
-def list_products(search: str = "", category: str = "Todas", status: str = "Todos") -> pd.DataFrame:
+def list_products(
+    search: str = "",
+    category: str = "Todas",
+    status: str = "Todos",
+    company_id: int | None = None,
+) -> pd.DataFrame:
     clauses = ["1 = 1"]
     params: list[object] = []
+
+    if company_id is not None:
+        clauses.append("p.company_id = ?")
+        params.append(company_id)
 
     search = search.strip()
     if search:
@@ -46,7 +56,7 @@ def list_products(search: str = "", category: str = "Todas", status: str = "Todo
 
     sql = f"""
         SELECT p.id, p.sku, p.name, p.category, p.description, p.price, p.cost,
-               p.stock, p.min_stock, p.active, p.created_at, p.updated_at
+               p.stock, p.min_stock, p.active, p.company_id, p.created_at, p.updated_at
         FROM products p
         WHERE {' AND '.join(clauses)}
         ORDER BY p.active DESC, p.name COLLATE NOCASE
@@ -92,6 +102,7 @@ def save_product(
     active: bool,
     product_id: int | None = None,
     actor: str = "Sistema",
+    company_id: int | None = None,
 ) -> int:
     sku = sku.strip().upper()
     name = name.strip()
@@ -119,8 +130,8 @@ def save_product(
                     """
                     INSERT INTO products
                         (sku, name, category, description, price, cost, stock,
-                         min_stock, active, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         min_stock, active, company_id, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         sku,
@@ -132,6 +143,7 @@ def save_product(
                         int(stock),
                         int(min_stock),
                         int(active),
+                        company_id,
                         now,
                         now,
                     ),
@@ -159,7 +171,8 @@ def save_product(
                 """
                 UPDATE products
                 SET sku = ?, name = ?, category = ?, description = ?, price = ?,
-                    cost = ?, stock = ?, min_stock = ?, active = ?, updated_at = ?
+                    cost = ?, stock = ?, min_stock = ?, active = ?,
+                    company_id = COALESCE(?, company_id), updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -172,6 +185,7 @@ def save_product(
                     int(stock),
                     int(min_stock),
                     int(active),
+                    company_id,
                     now,
                     product_id,
                 ),
@@ -249,17 +263,24 @@ def list_customers(search: str = "", status: str = "Todos") -> pd.DataFrame:
     search = search.strip()
     if search:
         term = f"%{search.lower()}%"
-        clauses.append(
-            "(lower(c.name) LIKE ? OR lower(c.email) LIKE ? OR lower(c.phone) LIKE ? "
-            "OR lower(c.city) LIKE ?)"
-        )
-        params.extend([term, term, term, term])
+        like_clauses = [
+            "lower(c.name) LIKE ?",
+            "lower(c.phone) LIKE ?",
+            "lower(c.city) LIKE ?",
+        ]
+        like_params = [term, term, term]
+        # Busca por e-mail: criptografa o termo e compara o hash.
+        if "@" in search:
+            like_clauses.append("c.email_hash = ?")
+            like_params.append(crypto.hash_email(search))
+        clauses.append("(" + " OR ".join(like_clauses) + ")")
+        params.extend(like_params)
     if status in CUSTOMER_STATUSES:
         clauses.append("c.status = ?")
         params.append(status)
 
     sql = f"""
-        SELECT c.id, c.name, c.email, c.phone, c.city, c.state, c.status,
+        SELECT c.id, c.name, c.email, c.email_hash, c.phone, c.city, c.state, c.status,
                c.notes, c.created_at, c.updated_at,
                COUNT(o.id) AS orders_count,
                COALESCE(SUM(CASE WHEN o.status IN ('Pago', 'Enviado', 'Entregue')
@@ -272,13 +293,20 @@ def list_customers(search: str = "", status: str = "Todos") -> pd.DataFrame:
         ORDER BY c.name COLLATE NOCASE
     """
     with connection() as conn:
-        return pd.read_sql_query(sql, conn, params=params)
+        df = pd.read_sql_query(sql, conn, params=params)
+    if not df.empty and "email" in df.columns:
+        df["email"] = df["email"].map(crypto.decrypt)
+    return df
 
 
 def get_customer(customer_id: int) -> dict | None:
     with connection() as conn:
         row = conn.execute("SELECT * FROM customers WHERE id = ?", (customer_id,)).fetchone()
-    return dict(row) if row else None
+    if row is None:
+        return None
+    data = dict(row)
+    data["email"] = crypto.decrypt(data.get("email"))
+    return data
 
 
 def get_customer_stats(customer_id: int) -> dict:
@@ -341,10 +369,10 @@ def save_customer(
                 cursor = conn.execute(
                     """
                     INSERT INTO customers
-                        (name, email, phone, city, state, status, notes, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (name, email, email_hash, phone, city, state, status, notes, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (name, email, phone, city, state, status, notes, now, now),
+                    (name, crypto.encrypt(email), crypto.hash_email(email), phone, city, state, status, notes, now, now),
                 )
                 return int(cursor.lastrowid)
 
@@ -356,11 +384,11 @@ def save_customer(
             conn.execute(
                 """
                 UPDATE customers
-                SET name = ?, email = ?, phone = ?, city = ?, state = ?, status = ?,
+                SET name = ?, email = ?, email_hash = ?, phone = ?, city = ?, state = ?, status = ?,
                     notes = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (name, email, phone, city, state, status, notes, now, customer_id),
+                (name, crypto.encrypt(email), crypto.hash_email(email), phone, city, state, status, notes, now, customer_id),
             )
             return customer_id
     except sqlite3.IntegrityError as exc:

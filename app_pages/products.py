@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from lib import acl, catalog, ui
+from lib import acl, catalog, companies, ui
 from lib.errors import DomainError
 
 user = acl.require("products.view_product")
@@ -110,6 +110,7 @@ def _product_form_body(product_id: int | None) -> None:
                 min_stock=int(min_stock),
                 active=active,
                 actor=user["name"],
+                company_id=companies.current_company_id(),
             )
         except DomainError as exc:
             st.error(str(exc))
@@ -173,7 +174,7 @@ with header_right:
             ):
                 new_product_dialog()
 
-all_products = catalog.list_products()
+all_products = catalog.list_products(company_id=companies.current_company_id())
 active_products = int(all_products["active"].sum()) if not all_products.empty else 0
 low_stock_count = int(
     ((all_products["stock"] <= all_products["min_stock"]) & (all_products["active"] == 1)).sum()
@@ -232,6 +233,7 @@ filtered = catalog.list_products(
     search=search,
     category=category_filter,
     status=status_filter or "Todos",
+    company_id=companies.current_company_id(),
 )
 
 if filtered.empty:

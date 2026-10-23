@@ -14,12 +14,29 @@ _DEFAULTS: dict[str, Any] = {
     "icon_path": "assets/favicon.svg",
     "primary_color": "#0F766E",
     "secondary_color": "#111C2E",
-    "tertiary_color": "#E2E8F0",
 }
 
 
 def _normalize_path(path: str | None) -> str:
     return str(path).strip() if path else _DEFAULTS["icon_path"]
+
+
+def contrast_color(hex_color: str) -> str:
+    """Retorna preto ou branco conforme o contraste com a cor informada."""
+    hex_color = (hex_color or "").strip().lstrip("#")
+    if len(hex_color) == 3:
+        hex_color = "".join(c * 2 for c in hex_color)
+    if len(hex_color) != 6:
+        return "#FFFFFF"
+    try:
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+    except ValueError:
+        return "#FFFFFF"
+    # Luminância relativa (sRGB) — limiar ~0.5.
+    luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+    return "#111827" if luminance > 0.6 else "#FFFFFF"
 
 
 def load_branding() -> dict[str, Any]:
@@ -34,11 +51,13 @@ def load_branding() -> dict[str, Any]:
         pass
     data["company_name"] = str(data.get("company_name") or _DEFAULTS["company_name"]).strip()
     data["icon_path"] = _normalize_path(data.get("icon_path"))
-    for key in ("primary_color", "secondary_color", "tertiary_color"):
+    for key in ("primary_color", "secondary_color"):
         value = str(data.get(key) or _DEFAULTS[key]).strip()
         if not value.startswith("#"):
             value = _DEFAULTS[key]
         data[key] = value
+    # Remove chaves legadas (tertiary) para manter o arquivo limpo.
+    data.pop("tertiary_color", None)
     return data
 
 
@@ -52,7 +71,7 @@ def save_branding(data: dict[str, Any]) -> None:
     )
 
 
-def update_config_theme(primary: str, secondary: str, tertiary: str) -> None:
+def update_config_theme(primary: str, secondary: str) -> None:
     """Atualiza as cores do tema no ``.streamlit/config.toml``.
 
     As mudanças só surtem efeito completo após reiniciar o servidor, mas o
@@ -96,8 +115,4 @@ def update_config_theme(primary: str, secondary: str, tertiary: str) -> None:
     text = _replace("secondaryBackgroundColor", secondary, None)
     text = _replace("secondaryBackgroundColor", secondary, "theme.light")
     text = _replace("secondaryBackgroundColor", secondary, "theme.dark")
-    # borderColor -> cor terciária
-    text = _replace("borderColor", tertiary, None)
-    text = _replace("borderColor", tertiary, "theme.light")
-    text = _replace("borderColor", tertiary, "theme.dark")
     config_path.write_text(text, encoding="utf-8")
