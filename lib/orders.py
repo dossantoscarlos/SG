@@ -416,18 +416,26 @@ def update_order_status(
                     quantity=int(item["quantity"]),
                     unit_cost=float(item["cost"]),
                 )
-                old_stock = int(product["stock"])
-                conn.execute(
-                    "UPDATE products SET stock = stock - ?, updated_at = ? WHERE id = ?",
-                    (item["quantity"], now, item["product_id"]),
+                cursor = conn.execute(
+                    "UPDATE products SET stock = stock - ?, updated_at = ? WHERE id = ? AND stock >= ?",
+                    (item["quantity"], now, item["product_id"], item["quantity"]),
                 )
+                if cursor.rowcount == 0:
+                    raise DomainError(
+                        f"Não há estoque suficiente para reativar o pedido: {item['name']}."
+                    )
+                updated = conn.execute(
+                    "SELECT stock FROM products WHERE id = ?", (item["product_id"],)
+                ).fetchone()
+                new_stock = int(updated["stock"])
+                old_stock = new_stock + int(item["quantity"])
                 record_stock_movement(
                     conn,
                     product_id=item["product_id"],
                     quantity=-item["quantity"],
                     kind="Reativação",
                     balance_before=old_stock,
-                    balance_after=old_stock - int(item["quantity"]),
+                    balance_after=new_stock,
                     reason=f"Reativação do pedido {number}",
                     actor=actor,
                     order_id=order_id,

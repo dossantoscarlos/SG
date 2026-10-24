@@ -713,18 +713,26 @@ def _apply_stock_out(
     created_at: str,
     movement_kind: str = "Saída",
 ) -> int:
-    old_stock = int(product["stock"])
     quantity = int(quantity)
-    if old_stock < quantity:
-        raise DomainError(
-            f"Estoque insuficiente para {product['name']}. "
-            f"Disponível: {old_stock} un."
-        )
-    new_stock = old_stock - quantity
-    conn.execute(
-        "UPDATE products SET stock = ?, updated_at = ? WHERE id = ?",
-        (new_stock, created_at, int(product["id"])),
+    cursor = conn.execute(
+        "UPDATE products SET stock = stock - ?, updated_at = ? WHERE id = ? AND stock >= ?",
+        (quantity, created_at, int(product["id"]), quantity),
     )
+    if cursor.rowcount == 0:
+        current = conn.execute(
+            "SELECT stock, name FROM products WHERE id = ?", (int(product["id"]),)
+        ).fetchone()
+        available = int(current["stock"]) if current else 0
+        name = current["name"] if current else product["name"]
+        raise DomainError(
+            f"Estoque insuficiente para {name}. "
+            f"Disponível: {available} un."
+        )
+    updated = conn.execute(
+        "SELECT stock FROM products WHERE id = ?", (int(product["id"]),)
+    ).fetchone()
+    new_stock = int(updated["stock"])
+    old_stock = new_stock + quantity
     return _record_movement_row(
         conn,
         document_id=document_id,
@@ -1341,12 +1349,35 @@ def reverse_stock_document(
             if delta == 0:
                 continue
             product = _load_product(conn, int(item["product_id"]))
-            old_stock = int(product["stock"])
-            new_stock = old_stock + delta
-            conn.execute(
-                "UPDATE products SET stock = ?, updated_at = ? WHERE id = ?",
-                (new_stock, now, int(product["id"])),
-            )
+            if delta < 0:
+                cursor = conn.execute(
+                    "UPDATE products SET stock = stock - ?, updated_at = ? WHERE id = ? AND stock >= ?",
+                    (abs(delta), now, int(product["id"]), abs(delta)),
+                )
+                if cursor.rowcount == 0:
+                    current = conn.execute(
+                        "SELECT stock FROM products WHERE id = ?", (int(product["id"]),)
+                    ).fetchone()
+                    available = int(current["stock"]) if current else 0
+                    raise DomainError(
+                        f"Estoque insuficiente para estornar {product['name']}. "
+                        f"Disponível: {available} un."
+                    )
+                updated = conn.execute(
+                    "SELECT stock FROM products WHERE id = ?", (int(product["id"]),)
+                ).fetchone()
+                new_stock = int(updated["stock"])
+                old_stock = new_stock + abs(delta)
+            else:
+                conn.execute(
+                    "UPDATE products SET stock = stock + ?, updated_at = ? WHERE id = ?",
+                    (delta, now, int(product["id"])),
+                )
+                updated = conn.execute(
+                    "SELECT stock FROM products WHERE id = ?", (int(product["id"]),)
+                ).fetchone()
+                new_stock = int(updated["stock"])
+                old_stock = new_stock - delta
             entity = (
                 (
                     movement["entity_kind"],
